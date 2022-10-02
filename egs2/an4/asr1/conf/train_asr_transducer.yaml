@@ -21,17 +21,19 @@ encoder_conf:
     positional_dropout_rate: 0.1
     attention_dropout_rate: 0.0
     input_layer: conv2d
-    normalize_before: true  
+    normalize_before: true
 
-decoder: transformer
+decoder: transducer 
 decoder_conf:
-    attention_heads: 4
-    linear_units: 2048
-    num_blocks: 6
-    dropout_rate: 0.1
-    positional_dropout_rate: 0.1
-    self_attention_dropout_rate: 0.0
-    src_attention_dropout_rate: 0.0
+    rnn_type: lstm
+    num_layers: 1
+    hidden_size: 512
+    dropout: 0.1
+    dropout_embed: 0.2
+
+joint_net_conf:
+    joint_space_size: 640
+    
 
 model_conf:
     ctc_weight: 0.3

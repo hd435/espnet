@@ -41,7 +41,13 @@ class LMTask(AbsTask):
 
     # If you need to modify train() or eval() procedures, change Trainer class here
     trainer = Trainer
-
+    '''
+    add_task_arguments
+    build_collate_fn
+    required_data_names
+    optional_data_names
+    build_model
+    '''
     @classmethod
     def add_task_arguments(cls, parser: argparse.ArgumentParser):
         # NOTE(kamo): Use '_' instead of '-' to avoid confusion
@@ -136,7 +142,7 @@ class LMTask(AbsTask):
         Tuple[List[str], Dict[str, torch.Tensor]],
     ]:
         assert check_argument_types()
-        return CommonCollateFn(int_pad_value=0)
+        return CommonCollateFn(int_pad_value=0)   #?
 
     @classmethod
     def build_preprocess_fn(
@@ -191,7 +197,7 @@ class LMTask(AbsTask):
         logging.info(f"Vocabulary size: {vocab_size }")
 
         # 1. Build LM model
-        lm_class = lm_choices.get_class(args.lm)
+        lm_class = lm_choices.get_class(args.lm)   # transformer/...
         lm = lm_class(vocab_size=vocab_size, **args.lm_conf)
 
         # 2. Build ESPnetModel

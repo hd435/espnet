@@ -50,6 +50,8 @@ class BeamSearchTransducer:
         beam_size: int,
         lm: torch.nn.Module = None,
         lm_weight: float = 0.1,
+        elm: torch.nn.Module = None,
+        elm_weight: float = 0.1,
         search_type: str = "default",
         max_sym_exp: int = 2,
         u_max: int = 50,
@@ -141,6 +143,8 @@ class BeamSearchTransducer:
         self.use_lm = lm is not None
         self.lm = lm
         self.lm_weight = lm_weight
+        self.elm = elm
+        self.elm_weight = elm_weight
 
         self.score_norm = score_norm
         self.nbest = nbest
@@ -272,6 +276,7 @@ class BeamSearchTransducer:
         kept_hyps = [Hypothesis(score=0.0, yseq=[self.blank_id], dec_state=dec_state)]
         cache = {}
         cache_lm = {}
+        cache_elm = {}
 
         for enc_out_t in enc_out:
             hyps = kept_hyps
@@ -311,19 +316,67 @@ class BeamSearchTransducer:
                     )
                 )
 
+
+
+
+
+
                 if self.use_lm:
-                    if tuple(max_hyp.yseq) not in cache_lm:
-                        lm_scores, lm_state = self.lm.score(
-                            torch.LongTensor(
-                                [self.sos] + max_hyp.yseq[1:],
-                                device=self.decoder.device,
-                            ),
-                            max_hyp.lm_state,
-                            None,
-                        )
-                        cache_lm[tuple(max_hyp.yseq)] = (lm_scores, lm_state)
-                    else:
-                        lm_scores, lm_state = cache_lm[tuple(max_hyp.yseq)]
+                    # SHALLOW FUSION
+                    if self.fusion_method == 'shallow' or self.fusion_method == None:
+                        if tuple(max_hyp.yseq) not in cache_lm:
+                            lm_scores, lm_state = self.lm.score(
+                                torch.LongTensor(
+                                    [self.sos] + max_hyp.yseq[1:],
+                                    device=self.decoder.device,
+                                ),
+                                max_hyp.lm_state,
+                                None,
+                            )
+                            cache_lm[tuple(max_hyp.yseq)] = (lm_scores, lm_state)
+                        else:
+                            lm_scores, lm_state = cache_lm[tuple(max_hyp.yseq)]
+
+
+                    # DENSITY RATIO
+                    elif self.fusion_method == 'density ratio':
+                        if tuple(max_hyp.yseq) not in cache_lm:
+                            lm_scores, lm_state = self.lm.score(
+                                torch.LongTensor(
+                                    [self.sos] + max_hyp.yseq[1:],
+                                    device=self.decoder.device,
+                                ),
+                                max_hyp.lm_state,
+                                None,
+                            )
+                            cache_lm[tuple(max_hyp.yseq)] = (lm_scores, lm_state)
+
+                            elm_scores, elm_state = self.elm.score(
+                                torch.LongTensor(
+                                    [self.sos] + max_hyp.yseq[1:],
+                                    device=self.decoder.device,
+                                ),
+                                max_hyp.elm_state,
+                                None,
+                            )
+                            cache_elm[tuple(max_hyp.yseq)] = (elm_scores, elm_state)
+                        else:
+                            lm_scores, lm_state = cache_lm[tuple(max_hyp.yseq)]
+                            elm_scores, elm_state = cache_elm[tuple(max_hyp.yseq)]
+                    
+                    # HAT: similar to density ratio but estimate ilm by zeroing out encoder output, no training elm
+
+                    # Librispeech Transducer Model with Internal Language Model Prior Correction
+                    # : extension of HAT, but use average of encoder output instead of zero
+
+
+                    # ILME:  at each step of beam search, estimate iLM score of the next non-blank candidate token 
+                    # by zeroing out encoder output and subtract it from the log-linear interpolation
+
+
+                    # ILMT: make acoustically conditioned IML more like a standalone iLM while keeping asr accuracy.
+                    
+                    # Jointly minimise iLM loss and E2E Loss
                 else:
                     lm_state = max_hyp.lm_state
 
@@ -331,7 +384,11 @@ class BeamSearchTransducer:
                     score = max_hyp.score + float(logp)
 
                     if self.use_lm:
-                        score += self.lm_weight * lm_scores[k + 1]
+                        if self.fusion_method == 'shallow' or self.fusion_method == None:
+                            score += self.lm_weight * lm_scores[k + 1]
+                        elif self.fusion_method == 'density ratio':
+                            score += self.elm_weight * elm_scores[k + 1]
+                            score -= self.lm_weight * lm_scores[k + 1]
 
                     hyps.append(
                         Hypothesis(
@@ -341,6 +398,11 @@ class BeamSearchTransducer:
                             lm_state=lm_state,
                         )
                     )
+
+
+
+
+
 
                 hyps_max = float(max(hyps, key=lambda x: x.score).score)
                 kept_most_prob = sorted(

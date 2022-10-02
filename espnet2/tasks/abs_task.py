@@ -180,6 +180,14 @@ class AbsTask(ABC):
     trainer = Trainer
     class_choices_list: List[ClassChoices] = []
 
+    '''
+    add_task_arguments
+    build_collate_fn
+    required_data_names
+    optional_data_names
+    build_model
+    '''
+
     def __init__(self):
         raise RuntimeError("This class can't be instantiated.")
 
