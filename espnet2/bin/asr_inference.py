@@ -55,6 +55,8 @@ class Speech2Text:
         transducer_conf: dict = None,
         lm_train_config: Union[Path, str] = None,
         lm_file: Union[Path, str] = None,
+        elm_train_config: Union[Path, str] = None,
+        elm_file: Union[Path, str] = None,
         ngram_scorer: str = "full",
         ngram_file: Union[Path, str] = None,
         token_type: str = None,
@@ -67,6 +69,7 @@ class Speech2Text:
         beam_size: int = 20,
         ctc_weight: float = 0.5,
         lm_weight: float = 1.0,
+        elm_weight: float = 1.0,
         ngram_weight: float = 0.9,
         penalty: float = 0.0,
         nbest: int = 1,
@@ -143,11 +146,27 @@ class Speech2Text:
                 )
 
             scorers["lm"] = lm.lm
+        
+
+        # 2.5. Build external Language model
+        if elm_train_config is not None:
+            elm, elm_train_args = LMTask.build_model_from_file(
+                elm_train_config, elm_file, device
+            )
+
+            if quantize_lm:
+                logging.info("Use quantized lm for decoding.")
+
+                elm = torch.quantization.quantize_dynamic(
+                    elm, qconfig_spec=quantize_modules, dtype=quantize_dtype
+                )
+
+            scorers["elm"] = elm.lm
 
         # 3. Build ngram model
         if ngram_file is not None:
             if ngram_scorer == "full":
-                from espnet.nets.scorers.ngram import NgramFullScorer
+                from espnet.nets.scorers.ngram import NgramFullScorerlm_weight
 
                 ngram = NgramFullScorer(ngram_file, token_list)
             else:
@@ -165,11 +184,26 @@ class Speech2Text:
                 joint_network=asr_model.joint_network,
                 beam_size=beam_size,
                 lm=scorers["lm"] if "lm" in scorers else None,
+                elm=scorers["elm"] if "elm" in scorers else None,
+                lm_weight=lm_weight,
+                elm_weight=elm_weight,
+                token_list=token_list,
+                **transducer_conf,
+            )
+            beam_search = None
+            '''
+        if asr_model.use_transducer_decoder:
+            beam_search_transducer = BeamSearchTransducer(
+                decoder=asr_model.decoder,
+                joint_network=asr_model.joint_network,
+                beam_size=beam_size,
+                lm=scorers["lm"] if "lm" in scorers else None,
                 lm_weight=lm_weight,
                 token_list=token_list,
                 **transducer_conf,
             )
             beam_search = None
+            '''
         else:
             beam_search_transducer = None
 
@@ -406,6 +440,7 @@ def inference(
     seed: int,
     ctc_weight: float,
     lm_weight: float,
+    elm_weight: float,
     ngram_weight: float,
     penalty: float,
     nbest: int,
@@ -470,6 +505,7 @@ def inference(
         beam_size=beam_size,
         ctc_weight=ctc_weight,
         lm_weight=lm_weight,
+        elm_weight=elm_weight,
         ngram_weight=ngram_weight,
         penalty=penalty,
         nbest=nbest,

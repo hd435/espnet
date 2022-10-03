@@ -340,6 +340,9 @@ class BeamSearchTransducer:
 
                     # DENSITY RATIO
                     elif self.fusion_method == 'density ratio':
+                        if self.elm == None:
+                            raise NotImplementedError
+
                         if tuple(max_hyp.yseq) not in cache_lm:
                             lm_scores, lm_state = self.lm.score(
                                 torch.LongTensor(
@@ -366,6 +369,7 @@ class BeamSearchTransducer:
                     
                     # HAT: similar to density ratio but estimate ilm by zeroing out encoder output, no training elm
 
+
                     # Librispeech Transducer Model with Internal Language Model Prior Correction
                     # : extension of HAT, but use average of encoder output instead of zero
 
@@ -374,9 +378,10 @@ class BeamSearchTransducer:
                     # by zeroing out encoder output and subtract it from the log-linear interpolation
 
 
-                    # ILMT: make acoustically conditioned IML more like a standalone iLM while keeping asr accuracy.
+                    # ILMT: make acoustically conditioned IML more like a standalone ILM while keeping asr accuracy.
                     
-                    # Jointly minimise iLM loss and E2E Loss
+
+                    # Jointly minimise ILM loss and E2E Loss
                 else:
                     lm_state = max_hyp.lm_state
 
@@ -387,8 +392,9 @@ class BeamSearchTransducer:
                         if self.fusion_method == 'shallow' or self.fusion_method == None:
                             score += self.lm_weight * lm_scores[k + 1]
                         elif self.fusion_method == 'density ratio':
-                            score += self.elm_weight * elm_scores[k + 1]
                             score -= self.lm_weight * lm_scores[k + 1]
+                            score += self.elm_weight * elm_scores[k + 1]
+                            
 
                     hyps.append(
                         Hypothesis(

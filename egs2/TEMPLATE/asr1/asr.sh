@@ -70,6 +70,7 @@ ngram_num=3
 
 # Language model related
 use_lm=true       # Use language model for ASR decoding.
+use_elm=false     # Use external language model for ASR decoding
 lm_tag=           # Suffix to the result dir for language model training.
 lm_exp=           # Specify the directory path for LM experiment.
                   # If this option is specified, lm_tag is ignored.
@@ -1185,6 +1186,15 @@ if ! "${skip_eval}"; then
             else
                 _opts+="--lm_train_config ${lm_exp}/config.yaml "
                 _opts+="--lm_file ${lm_exp}/${inference_lm} "
+            fi
+        fi
+        if "${use_elm}"; then
+            if "${use_word_elm}"; then
+                _opts+="--word_elm_train_config ${elm_exp}/config.yaml "
+                _opts+="--word_elm_file ${elm_exp}/${inference_elm} "
+            else
+                _opts+="--elm_train_config ${elm_exp}/config.yaml "
+                _opts+="--elm_file ${elm_exp}/${inference_lm} "
             fi
         fi
         if "${use_ngram}"; then
