@@ -212,9 +212,6 @@ if [ -z "${asr_tag}" ]; then
     if [ -n "${asr_args}" ]; then
         asr_tag+="$(echo "${asr_args}" | sed -e "s/--/\_/g" -e "s/[ |=/]//g")"
     fi
-    if [ -n "${speed_perturb_factors}" ]; then
-        asr_tag+="_sp"
-    fi
 fi
 if [ -z "${lm_tag}" ]; then
     if [ -n "${lm_config}" ]; then
@@ -245,9 +242,6 @@ if [ -z "${asr_stats_dir}" ]; then
     fi
     if [ "${token_type}" = bpe ]; then
         asr_stats_dir+="${nbpe}"
-    fi
-    if [ -n "${speed_perturb_factors}" ]; then
-        asr_stats_dir+="_sp"
     fi
 fi
 if [ -z "${lm_stats_dir}" ]; then
