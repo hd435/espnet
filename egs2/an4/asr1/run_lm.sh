@@ -13,5 +13,5 @@ set -o pipefail
     --train_set train_nodev \
     --valid_set train_dev \
     --test_sets "train_dev test" \
-    --bpe_train_text "dump/raw/train_nodev_sp/text" \
-    --lm_train_text "data/train_nodev_sp/text" "$@"
+    --bpe_train_text "dump/raw/train_nodev/text" \
+    --lm_train_text "data/train_nodev/text" "$@"
