@@ -79,6 +79,7 @@ class Speech2Text:
         quantize_lm: bool = False,
         quantize_modules: List[str] = ["Linear"],
         quantize_dtype: str = "qint8",
+        zero_out_enc: bool = False
     ):
         assert check_argument_types()
 
@@ -285,7 +286,7 @@ class Speech2Text:
         self.dtype = dtype
         self.nbest = nbest
         self.enh_s2t_task = enh_s2t_task
-
+        self.zero_out_enc = zero_out_enc
     @torch.no_grad()
     def __call__(
         self, speech: Union[torch.Tensor, np.ndarray]
@@ -353,11 +354,18 @@ class Speech2Text:
 
         return results
 
+################################## ZERO OUT ENCODER OUTPUT HERE ######################################
     def _decode_single_sample(self, enc: torch.Tensor):
         if self.beam_search_transducer:
-            logging.info("encoder output length: " + str(enc.shape[0]))
-            nbest_hyps = self.beam_search_transducer(enc)
+            if not self.zero_out_enc:
+                logging.info("encoder output length: " + str(enc.shape[0]))
+                nbest_hyps = self.beam_search_transducer(enc)
 
+            elif self.zero_out_enc:
+                enc.zero_()    # zero out enc output
+                logging.info("encoder output length: " + str(enc.shape[0]))
+                nbest_hyps = self.beam_search_transducer(enc)
+            
             best = nbest_hyps[0]
             logging.info(f"total log probability: {best.score:.2f}")
             logging.info(
@@ -466,6 +474,7 @@ def inference(
     quantize_lm: bool,
     quantize_modules: List[str],
     quantize_dtype: str,
+    zero_out_enc_out: bool = False
 ):
     assert check_argument_types()
     if batch_size > 1:
@@ -515,6 +524,7 @@ def inference(
         quantize_lm=quantize_lm,
         quantize_modules=quantize_modules,
         quantize_dtype=quantize_dtype,
+        zero_out_enc_out=zero_out_enc_out
     )
     speech2text = Speech2Text.from_pretrained(
         model_tag=model_tag,
