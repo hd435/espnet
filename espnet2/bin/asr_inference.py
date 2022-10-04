@@ -79,7 +79,7 @@ class Speech2Text:
         quantize_lm: bool = False,
         quantize_modules: List[str] = ["Linear"],
         quantize_dtype: str = "qint8",
-        zero_out_enc: bool = False
+        zero_out_enc_out: bool = False
     ):
         assert check_argument_types()
 
@@ -286,7 +286,7 @@ class Speech2Text:
         self.dtype = dtype
         self.nbest = nbest
         self.enh_s2t_task = enh_s2t_task
-        self.zero_out_enc = zero_out_enc
+        self.zero_out_enc_out = zero_out_enc_out
     @torch.no_grad()
     def __call__(
         self, speech: Union[torch.Tensor, np.ndarray]
@@ -357,11 +357,11 @@ class Speech2Text:
 ################################## ZERO OUT ENCODER OUTPUT HERE ######################################
     def _decode_single_sample(self, enc: torch.Tensor):
         if self.beam_search_transducer:
-            if not self.zero_out_enc:
+            if not self.zero_out_enc_out:
                 logging.info("encoder output length: " + str(enc.shape[0]))
                 nbest_hyps = self.beam_search_transducer(enc)
 
-            elif self.zero_out_enc:
+            elif self.zero_out_enc_out:
                 enc.zero_()    # zero out enc output
                 logging.info("encoder output length: " + str(enc.shape[0]))
                 nbest_hyps = self.beam_search_transducer(enc)
