@@ -39,6 +39,9 @@ python=python3       # Specify python to execute espnet commands.
 # Data preparation related
 local_data_opts= # The options given to local/data.sh.
 
+# Speed perturbation related
+speed_perturb_factors=  # perturbation factors, e.g. "0.9 1.0 1.1" (separated by space).
+
 # Feature extraction related
 feats_type=raw       # Feature type (raw or fbank_pitch).
 audio_format=flac    # Audio format: wav, flac, wav.ark, flac.ark  (only in feats_type=raw).
@@ -212,6 +215,9 @@ if [ -z "${asr_tag}" ]; then
     if [ -n "${asr_args}" ]; then
         asr_tag+="$(echo "${asr_args}" | sed -e "s/--/\_/g" -e "s/[ |=/]//g")"
     fi
+    if [ -n "${speed_perturb_factors}" ]; then
+        asr_tag+="_sp"
+    fi
 fi
 if [ -z "${lm_tag}" ]; then
     if [ -n "${lm_config}" ]; then
@@ -242,6 +248,9 @@ if [ -z "${asr_stats_dir}" ]; then
     fi
     if [ "${token_type}" = bpe ]; then
         asr_stats_dir+="${nbpe}"
+    fi
+    if [ -n "${speed_perturb_factors}" ]; then
+        asr_stats_dir+="_sp"
     fi
 fi
 if [ -z "${lm_stats_dir}" ]; then
@@ -299,6 +308,131 @@ if ! "${skip_data_prep}"; then
         log "Stage 1: Data preparation for data/${train_set}, data/${valid_set}, etc."
         # [Task dependent] Need to create data.sh for new corpus
         local/data.sh ${local_data_opts}
+    fi
+
+   if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
+        if [ -n "${speed_perturb_factors}" ]; then
+           log "Stage 2: Speed perturbation: data/${train_set} -> data/${train_set}_sp"
+           for factor in ${speed_perturb_factors}; do
+               if [[ $(bc <<<"${factor} != 1.0") == 1 ]]; then
+                   scripts/utils/perturb_data_dir_speed.sh "${factor}" "data/${train_set}" "data/${train_set}_sp${factor}"
+                   _dirs+="data/${train_set}_sp${factor} "
+               else
+                   # If speed factor is 1, same as the original
+                   _dirs+="data/${train_set} "
+               fi
+           done
+           utils/combine_data.sh "data/${train_set}_sp" ${_dirs}
+        else
+           log "Skip stage 2: Speed perturbation"
+        fi
+    fi
+
+    if [ -n "${speed_perturb_factors}" ]; then
+        train_set="${train_set}_sp"
+    fi
+
+    if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
+        if [ "${feats_type}" = raw ]; then
+            log "Stage 3: Format wav.scp: data/ -> ${data_feats}"
+
+            # ====== Recreating "wav.scp" ======
+            # Kaldi-wav.scp, which can describe the file path with unix-pipe, like "cat /some/path |",
+            # shouldn't be used in training process.
+            # "format_wav_scp.sh" dumps such pipe-style-wav to real audio file
+            # and it can also change the audio-format and sampling rate.
+            # If nothing is need, then format_wav_scp.sh does nothing:
+            # i.e. the input file format and rate is same as the output.
+
+            for dset in "${train_set}" "${valid_set}" ${test_sets}; do
+                if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ]; then
+                    _suf="/org"
+                else
+                    _suf=""
+                fi
+                utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}${_suf}/${dset}"
+                rm -f ${data_feats}${_suf}/${dset}/{segments,wav.scp,reco2file_and_channel,reco2dur}
+
+                _opts=
+                if [ -e data/"${dset}"/segments ]; then
+                    # "segments" is used for splitting wav files which are written in "wav".scp
+                    # into utterances. The file format of segments:
+                    #   <segment_id> <record_id> <start_time> <end_time>
+                    #   "e.g. call-861225-A-0050-0065 call-861225-A 5.0 6.5"
+                    # Where the time is written in seconds.
+                    _opts+="--segments data/${dset}/segments "
+                fi
+                # shellcheck disable=SC2086
+                scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
+                    --audio-format "${audio_format}" --fs "${fs}" ${_opts} \
+                    "data/${dset}/wav.scp" "${data_feats}${_suf}/${dset}"
+
+                echo "${feats_type}" > "${data_feats}${_suf}/${dset}/feats_type"
+            done
+
+        elif [ "${feats_type}" = fbank_pitch ]; then
+            log "[Require Kaldi] Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
+
+            for dset in "${train_set}" "${valid_set}" ${test_sets}; do
+                if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ]; then
+                    _suf="/org"
+                else
+                    _suf=""
+                fi
+                # 1. Copy datadir
+                utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}${_suf}/${dset}"
+
+                # 2. Feature extract
+                _nj=$(min "${nj}" "$(<"${data_feats}${_suf}/${dset}/utt2spk" wc -l)")
+                steps/make_fbank_pitch.sh --nj "${_nj}" --cmd "${train_cmd}" "${data_feats}${_suf}/${dset}"
+                utils/fix_data_dir.sh "${data_feats}${_suf}/${dset}"
+
+                # 3. Derive the the frame length and feature dimension
+                scripts/feats/feat_to_shape.sh --nj "${_nj}" --cmd "${train_cmd}" \
+                    "${data_feats}${_suf}/${dset}/feats.scp" "${data_feats}${_suf}/${dset}/feats_shape"
+
+                # 4. Write feats_dim
+                head -n 1 "${data_feats}${_suf}/${dset}/feats_shape" | awk '{ print $2 }' \
+                    | cut -d, -f2 > ${data_feats}${_suf}/${dset}/feats_dim
+
+                # 5. Write feats_type
+                echo "${feats_type}" > "${data_feats}${_suf}/${dset}/feats_type"
+            done
+
+        elif [ "${feats_type}" = fbank ]; then
+            log "Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
+            log "${feats_type} is not supported yet."
+            exit 1
+
+        elif  [ "${feats_type}" = extracted ]; then
+            log "Stage 3: ${feats_type} extract: data/ -> ${data_feats}"
+            # Assumming you don't have wav.scp, but feats.scp is created by local/data.sh instead.
+
+            for dset in "${train_set}" "${valid_set}" ${test_sets}; do
+                if [ "${dset}" = "${train_set}" ] || [ "${dset}" = "${valid_set}" ]; then
+                    _suf="/org"
+                else
+                    _suf=""
+                fi
+                # Generate dummy wav.scp to avoid error by copy_data_dir.sh
+                <data/"${dset}"/cmvn.scp awk ' { print($1,"<DUMMY>") }' > data/"${dset}"/wav.scp
+                utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}${_suf}/${dset}"
+
+                # Derive the the frame length and feature dimension
+                _nj=$(min "${nj}" "$(<"${data_feats}${_suf}/${dset}/utt2spk" wc -l)")
+                scripts/feats/feat_to_shape.sh --nj "${_nj}" --cmd "${train_cmd}" \
+                    "${data_feats}${_suf}/${dset}/feats.scp" "${data_feats}${_suf}/${dset}/feats_shape"
+
+                pyscripts/feats/feat-to-shape.py "scp:head -n 1 ${data_feats}${_suf}/${dset}/feats.scp |" - | \
+                    awk '{ print $2 }' | cut -d, -f2 > "${data_feats}${_suf}/${dset}/feats_dim"
+
+                echo "${feats_type}" > "${data_feats}${_suf}/${dset}/feats_type"
+            done
+
+        else
+            log "Error: not supported: --feats_type ${feats_type}"
+            exit 2
+        fi
     fi
 
 
