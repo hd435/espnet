@@ -24,16 +24,19 @@ SECONDS=0
 
 # General configuration
 stage=1              # Processes starts from the specified stage.
-stop_stage=9         # Processes is stopped at the specified stage.
+stop_stage=10        # Processes is stopped at the specified stage.
 skip_data_prep=false # Skip data preparation stages.
 skip_train=false     # Skip training stages.
 skip_eval=false      # Skip decoding and evaluation stages.
+skip_upload=true     # Skip packing and uploading stages.
+skip_upload_hf=true  # Skip uploading to hugging face stages.
 ngpu=1               # The number of gpus ("0" uses cpu, otherwise use gpu).
 num_nodes=1          # The number of nodes.
 nj=32                # The number of parallel jobs.
+inference_nj=32      # The number of parallel jobs in decoding.
 gpu_inference=false  # Whether to perform gpu decoding.
 dumpdir=dump         # Directory to dump features.
-expdir=indiv_lm      # Directory to save experiments.
+expdir=indiv_lm           # Directory to save experiments.
 python=python3       # Specify python to execute espnet commands.
 
 # Data preparation related
@@ -66,7 +69,7 @@ ngram_exp=
 ngram_num=3
 
 # Language model related
-use_lm=true
+use_lm=true       # Use language model for ASR decoding.
 lm_tag=           # Suffix to the result dir for language model training.
 lm_exp=           # Specify the directory path for LM experiment.
                   # If this option is specified, lm_tag is ignored.
@@ -93,6 +96,38 @@ ignore_init_mismatch=false      # Ignore initial mismatch
 feats_normalize=global_mvn # Normalizaton layer type.
 num_splits_asr=1           # Number of splitting for lm corpus.
 
+# Upload model related
+hf_repo=
+
+# Decoding related
+use_k2=false      # Whether to use k2 based decoder
+k2_ctc_decoding=true
+use_nbest_rescoring=true # use transformer-decoder
+                         # and transformer language model for nbest rescoring
+num_paths=1000 # The 3rd argument of k2.random_paths.
+nll_batch_size=100 # Affect GPU memory usage when computing nll
+                   # during nbest rescoring
+k2_config=./conf/decode_asr_transformer_with_k2.yaml
+
+use_streaming=false # Whether to use streaming decoding
+
+use_maskctc=false # Whether to use maskctc decoding
+
+batch_size=1
+inference_tag=    # Suffix to the result dir for decoding.
+inference_config= # Config for decoding.
+inference_args=   # Arguments for decoding, e.g., "--lm_weight 0.1".
+                  # Note that it will overwrite args in inference config.
+inference_lm=valid.loss.ave.pth       # Language model path for decoding.
+inference_ngram=${ngram_num}gram.bin
+inference_asr_model=valid.acc.ave.pth # ASR model path for decoding.
+                                      # e.g.
+                                      # inference_asr_model=train.loss.best.pth
+                                      # inference_asr_model=3epoch.pth
+                                      # inference_asr_model=valid.acc.best.pth
+                                      # inference_asr_model=valid.loss.ave.pth
+download_model= # Download a model from Model Zoo and use it for decoding.
+
 # [Task dependent] Set the datadir name created by local/data.sh
 train_set=       # Name of training set.
 valid_set=       # Name of validation set used for monitoring/tuning network training.
@@ -111,7 +146,110 @@ asr_speech_fold_length=800 # fold_length for speech data during ASR training.
 asr_text_fold_length=150   # fold_length for text data during ASR training.
 lm_fold_length=150         # fold_length for LM training.
 
+help_message=$(cat << EOF
+Usage: $0 --train-set "<train_set_name>" --valid-set "<valid_set_name>" --test_sets "<test_set_names>"
 
+Options:
+    # General configuration
+    --stage          # Processes starts from the specified stage (default="${stage}").
+    --stop_stage     # Processes is stopped at the specified stage (default="${stop_stage}").
+    --skip_data_prep # Skip data preparation stages (default="${skip_data_prep}").
+    --skip_train     # Skip training stages (default="${skip_train}").
+    --skip_eval      # Skip decoding and evaluation stages (default="${skip_eval}").
+    --skip_upload    # Skip packing and uploading stages (default="${skip_upload}").
+    --ngpu           # The number of gpus ("0" uses cpu, otherwise use gpu, default="${ngpu}").
+    --num_nodes      # The number of nodes (default="${num_nodes}").
+    --nj             # The number of parallel jobs (default="${nj}").
+    --inference_nj   # The number of parallel jobs in decoding (default="${inference_nj}").
+    --gpu_inference  # Whether to perform gpu decoding (default="${gpu_inference}").
+    --dumpdir        # Directory to dump features (default="${dumpdir}").
+    --expdir         # Directory to save experiments (default="${expdir}").
+    --python         # Specify python to execute espnet commands (default="${python}").
+
+    # Data preparation related
+    --local_data_opts # The options given to local/data.sh (default="${local_data_opts}").
+
+    # Speed perturbation related
+    --speed_perturb_factors # speed perturbation factors, e.g. "0.9 1.0 1.1" (separated by space, default="${speed_perturb_factors}").
+
+    # Feature extraction related
+    --feats_type       # Feature type (raw, fbank_pitch or extracted, default="${feats_type}").
+    --audio_format     # Audio format: wav, flac, wav.ark, flac.ark  (only in feats_type=raw, default="${audio_format}").
+    --fs               # Sampling rate (default="${fs}").
+    --min_wav_duration # Minimum duration in second (default="${min_wav_duration}").
+    --max_wav_duration # Maximum duration in second (default="${max_wav_duration}").
+
+    # Tokenization related
+    --token_type              # Tokenization type (char or bpe, default="${token_type}").
+    --nbpe                    # The number of BPE vocabulary (default="${nbpe}").
+    --bpemode                 # Mode of BPE (unigram or bpe, default="${bpemode}").
+    --oov                     # Out of vocabulary symbol (default="${oov}").
+    --blank                   # CTC blank symbol (default="${blank}").
+    --sos_eos                 # sos and eos symbole (default="${sos_eos}").
+    --bpe_input_sentence_size # Size of input sentence for BPE (default="${bpe_input_sentence_size}").
+    --bpe_nlsyms              # Non-linguistic symbol list for sentencepiece, separated by a comma or a file containing 1 symbol per line . (default="${bpe_nlsyms}").
+    --bpe_char_cover          # Character coverage when modeling BPE (default="${bpe_char_cover}").
+
+    # Language model related
+    --lm_tag          # Suffix to the result dir for language model training (default="${lm_tag}").
+    --lm_exp          # Specify the directory path for LM experiment.
+                      # If this option is specified, lm_tag is ignored (default="${lm_exp}").
+    --lm_stats_dir    # Specify the directory path for LM statistics (default="${lm_stats_dir}").
+    --lm_config       # Config for language model training (default="${lm_config}").
+    --lm_args         # Arguments for language model training (default="${lm_args}").
+                      # e.g., --lm_args "--max_epoch 10"
+                      # Note that it will overwrite args in lm config.
+    --use_word_lm     # Whether to use word language model (default="${use_word_lm}").
+    --word_vocab_size # Size of word vocabulary (default="${word_vocab_size}").
+    --num_splits_lm   # Number of splitting for lm corpus (default="${num_splits_lm}").
+
+    # ASR model related
+    --asr_task         # ASR task mode. Either 'asr' or 'asr_transducer'. (default="${asr_task}").
+    --asr_tag          # Suffix to the result dir for asr model training (default="${asr_tag}").
+    --asr_exp          # Specify the directory path for ASR experiment.
+                       # If this option is specified, asr_tag is ignored (default="${asr_exp}").
+    --asr_stats_dir    # Specify the directory path for ASR statistics (default="${asr_stats_dir}").
+    --asr_config       # Config for asr model training (default="${asr_config}").
+    --asr_args         # Arguments for asr model training (default="${asr_args}").
+                       # e.g., --asr_args "--max_epoch 10"
+                       # Note that it will overwrite args in asr config.
+    --pretrained_model=          # Pretrained model to load (default="${pretrained_model}").
+    --ignore_init_mismatch=      # Ignore mismatch parameter init with pretrained model (default="${ignore_init_mismatch}").
+    --feats_normalize  # Normalizaton layer type (default="${feats_normalize}").
+    --num_splits_asr   # Number of splitting for lm corpus  (default="${num_splits_asr}").
+
+    # Decoding related
+    --inference_tag       # Suffix to the result dir for decoding (default="${inference_tag}").
+    --inference_config    # Config for decoding (default="${inference_config}").
+    --inference_args      # Arguments for decoding (default="${inference_args}").
+                          # e.g., --inference_args "--lm_weight 0.1"
+                          # Note that it will overwrite args in inference config.
+    --inference_lm        # Language model path for decoding (default="${inference_lm}").
+    --inference_asr_model # ASR model path for decoding (default="${inference_asr_model}").
+    --download_model      # Download a model from Model Zoo and use it for decoding (default="${download_model}").
+    --use_streaming       # Whether to use streaming decoding (default="${use_streaming}").
+    --use_maskctc         # Whether to use maskctc decoding (default="${use_streaming}").
+
+    # [Task dependent] Set the datadir name created by local/data.sh
+    --train_set     # Name of training set (required).
+    --valid_set     # Name of validation set used for monitoring/tuning network training (required).
+    --test_sets     # Names of test sets.
+                    # Multiple items (e.g., both dev and eval sets) can be specified (required).
+    --bpe_train_text # Text file path of bpe training set.
+    --lm_train_text  # Text file path of language model training set.
+    --lm_dev_text   # Text file path of language model development set (default="${lm_dev_text}").
+    --lm_test_text  # Text file path of language model evaluation set (default="${lm_test_text}").
+    --nlsyms_txt    # Non-linguistic symbol list if existing (default="${nlsyms_txt}").
+    --cleaner       # Text cleaner (default="${cleaner}").
+    --g2p           # g2p method (default="${g2p}").
+    --lang          # The language type of corpus (default=${lang}).
+    --score_opts             # The options given to sclite scoring (default="{score_opts}").
+    --local_score_opts       # The options given to local/score.sh (default="{local_score_opts}").
+    --asr_speech_fold_length # fold_length for speech data during ASR training (default="${asr_speech_fold_length}").
+    --asr_text_fold_length   # fold_length for text data during ASR training (default="${asr_text_fold_length}").
+    --lm_fold_length         # fold_length for LM training (default="${lm_fold_length}").
+EOF
+)
 
 log "$0 $*"
 # Save command line args for logging (they will be lost after utils/parse_options.sh)
@@ -300,7 +438,6 @@ if [ -z "${inference_tag}" ]; then
     fi
 fi
 
-
 # ========================== Main stages start from here. ==========================
 
 if ! "${skip_data_prep}"; then
@@ -310,7 +447,7 @@ if ! "${skip_data_prep}"; then
         local/data.sh ${local_data_opts}
     fi
 
-   if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
+    if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
         if [ -n "${speed_perturb_factors}" ]; then
            log "Stage 2: Speed perturbation: data/${train_set} -> data/${train_set}_sp"
            for factor in ${speed_perturb_factors}; do
@@ -436,7 +573,7 @@ if ! "${skip_data_prep}"; then
     fi
 
 
-if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
+    if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         log "Stage 4: Remove long/short data: ${data_feats}/org -> ${data_feats}"
 
         # NOTE(kamo): Not applying to test_sets to keep original data
@@ -774,6 +911,3 @@ if ! "${skip_train}"; then
             log "Stage 9: Skip ngram stages: use_ngram=${use_ngram}"
         fi
     fi
-else
-    log "Skip the training stages"
-fi
