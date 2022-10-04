@@ -439,7 +439,7 @@ if [ -z "${inference_tag}" ]; then
 fi
 
 # ========================== Main stages start from here. ==========================
-
+'''
 if ! "${skip_data_prep}"; then
     if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
         log "Stage 1: Data preparation for data/${train_set}, data/${valid_set}, etc."
@@ -464,7 +464,7 @@ if ! "${skip_data_prep}"; then
            log "Skip stage 2: Speed perturbation"
         fi
     fi
-
+'''
     if [ -n "${speed_perturb_factors}" ]; then
         train_set="${train_set}_sp"
     fi
