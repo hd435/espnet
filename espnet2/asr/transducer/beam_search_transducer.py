@@ -370,12 +370,12 @@ class BeamSearchTransducer:
                     # HAT: similar to density ratio but estimate ilm by zeroing out encoder output, no training elm
 
 
-                    # Librispeech Transducer Model with Internal Language Model Prior Correction
-                    # : extension of HAT, but use average of encoder output instead of zero
-
-
                     # ILME:  at each step of beam search, estimate ILM score of the next non-blank candidate token 
                     # by zeroing out encoder output and subtract it from the log-linear interpolation
+
+
+                    # Librispeech Transducer Model with Internal Language Model Prior Correction
+                    # : extension of HAT, but use average of encoder output instead of zero
 
 
                     # ILMT: make acoustically conditioned IML more like a standalone ILM while keeping asr accuracy.
